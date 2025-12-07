@@ -1,0 +1,84 @@
+use crate::config::Config;
+use crate::models::youtube_transcript::Root as TranscriptRoot;
+use crate::services::supabase_service::get_youtube_transcript;
+use crate::{models::youtube_snippet::SearchResult, services::youtube_service::get_youtube_search};
+use tokio::fs;
+
+pub async fn get_lastest_ksForword(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    let ks_channel_id = &config.ksforword_channel_id;
+
+    let resYoutube = get_youtube_search(&ks_channel_id).await?;
+    let filtered: Vec<_> = resYoutube
+        .items
+        .iter()
+        .filter(|item| {
+            if let Some(title) = &item.snippet.title {
+                title.starts_with("KS Forward")
+            } else {
+                false
+            }
+        })
+        .collect();
+
+    let lastest = filtered.first();
+
+    if let Some(item) = lastest {
+
+        let video_id = item.id.video_id.as_deref().unwrap_or("No video id found");
+
+        println!("video id: {}", video_id);
+
+        let mapped = SearchResult {
+            video_id: item.id.video_id.clone().unwrap_or_default(),
+            link: format!("https://www.youtube.com/watch?v={}", video_id),
+            title: item.snippet.title.clone().unwrap_or_default(),
+            publish_time: item.snippet.publish_time.clone().unwrap_or_default(),
+        };
+
+        // Get mock transcript and parse
+        let use_mock_data = config.use_mock_data;
+        let transcript_json = if use_mock_data {
+            dummy_transcript().await?
+        } else {
+            get_youtube_transcript(&mapped.link).await?
+        };
+
+        let full_transcript = parse_transcript_fullscript(transcript_json).await?;
+        //println!("Full Transcript: {}", full_transcript);
+
+        //chat with AI
+        let ai_response = crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
+        let ai_answer = ai_response.answer;
+        //println!("AI Answer: {}", ai_answer);
+
+        // send to discord
+        let message = ai_answer;
+        crate::services::discord_service::send_message(&mapped.title, &message).await?;
+    } else {
+        println!("No found data :  KS Forward");
+    }
+
+    Ok(())
+}
+
+// Function to parse transcript JSON into full transcript string
+pub async fn parse_transcript_fullscript(
+    transcript_json: TranscriptRoot,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let content = transcript_json.content;
+    let mut full_transcript = String::new();
+    for entry in content {
+        full_transcript.push_str(&entry.text);
+        full_transcript.push(' '); // เพิ่มช่องว่างระหว่างข้อความ
+    }
+
+    Ok(full_transcript)
+}
+
+// Mock function for testing transcript parsing
+pub async fn dummy_transcript() -> Result<TranscriptRoot, Box<dyn std::error::Error>> {
+    let path = "src/mock_data/example_transcript.json";
+    let data = fs::read_to_string(path).await?;
+    let transcript: TranscriptRoot = serde_json::from_str(&data)?;
+    Ok(transcript)
+}
