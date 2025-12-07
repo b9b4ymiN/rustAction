@@ -36,11 +36,38 @@ pub struct Item {
     pub snippet: Snippet,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Id {
-    pub kind: Option<String>,
-    pub video_id: Option<String>,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Id {
+    /// `id` can come back as a plain string from the `videos` endpoint
+    /// e.g. `"JB5FbXxSZ3o"`.
+    StringId(String),
+    /// Or as an object from the `search` endpoint:
+    /// `{ "kind": "youtube#video", "videoId": "..." }`.
+    Object {
+        #[serde(rename = "kind")]
+        kind: Option<String>,
+        #[serde(rename = "videoId")]
+        video_id: Option<String>,
+    },
+}
+
+impl Default for Id {
+    fn default() -> Self {
+        Id::StringId(String::new())
+    }
+}
+
+impl Id {
+    /// Return the video id when available.
+    pub fn as_video_id(&self) -> Option<String> {
+        match self {
+            Id::StringId(s) => {
+                if s.is_empty() { None } else { Some(s.clone()) }
+            }
+            Id::Object { video_id, .. } => video_id.clone(),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -8,7 +8,10 @@ pub async fn chat_with_ai(
     config: &Config,
     content: String,
 ) -> Result<Root, Box<dyn std::error::Error>> {
+
+    print!("Sending to myAI API");
     let myAI_url = &config.my_ai_api_url;
+    print!("myAI_url: {}", myAI_url);
     let client = Client::new();
     let body = json!({
         "persona": "ks-discord",
@@ -20,6 +23,7 @@ pub async fn chat_with_ai(
             }
         ]
     });
+
     let res = client
         .post(myAI_url)
         .header("accept", "application/json")

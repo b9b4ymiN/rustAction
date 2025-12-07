@@ -1,9 +1,13 @@
 use crate::config::Config;
 use crate::models::youtube_transcript::Root as TranscriptRoot;
 use crate::services::supabase_service::get_youtube_transcript;
-use crate::{models::youtube_snippet::SearchResult, services::youtube_service::get_youtube_search};
+use crate::{
+    models::youtube_snippet::SearchResult, services::youtube_service::get_detail_byLink,
+    services::youtube_service::get_youtube_search,
+};
 use tokio::fs;
 
+// Function to get the latest KS Forward video, process its transcript, chat with AI, and send to Discord
 pub async fn get_lastest_ksForword(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let ks_channel_id = &config.ksforword_channel_id;
 
@@ -23,13 +27,12 @@ pub async fn get_lastest_ksForword(config: &Config) -> Result<(), Box<dyn std::e
     let lastest = filtered.first();
 
     if let Some(item) = lastest {
-
-        let video_id = item.id.video_id.as_deref().unwrap_or("No video id found");
+        let video_id = item.id.as_video_id().unwrap_or_else(|| "No video id found".to_string());
 
         println!("video id: {}", video_id);
 
         let mapped = SearchResult {
-            video_id: item.id.video_id.clone().unwrap_or_default(),
+            video_id: item.id.as_video_id().unwrap_or_default(),
             link: format!("https://www.youtube.com/watch?v={}", video_id),
             title: item.snippet.title.clone().unwrap_or_default(),
             publish_time: item.snippet.publish_time.clone().unwrap_or_default(),
@@ -47,7 +50,8 @@ pub async fn get_lastest_ksForword(config: &Config) -> Result<(), Box<dyn std::e
         //println!("Full Transcript: {}", full_transcript);
 
         //chat with AI
-        let ai_response = crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
+        let ai_response =
+            crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
         let ai_answer = ai_response.answer;
         //println!("AI Answer: {}", ai_answer);
 
@@ -59,6 +63,37 @@ pub async fn get_lastest_ksForword(config: &Config) -> Result<(), Box<dyn std::e
     }
 
     Ok(())
+}
+
+// Function to get summary link from video link
+pub async fn get_summary_link(
+    config: &Config,
+    video_link: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let detail = get_detail_byLink(video_link).await?;
+    if detail.items.is_empty() {
+        return Err("No video details found for the provided link".into());
+    }
+
+    print!(
+        "Video Title: {}",
+        detail.items[0].snippet.title.clone().unwrap_or_default()
+    );
+
+    let transcript_json = get_youtube_transcript(video_link).await?;
+    let full_transcript = parse_transcript_fullscript(transcript_json).await?;
+    let ai_response = crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
+    let ai_answer = ai_response.answer;
+
+    //send to discord
+    let message = ai_answer.clone();
+    crate::services::discord_service::send_message(
+        &detail.items[0].snippet.title.clone().unwrap_or_default(),
+        &message,
+    )
+    .await?;
+
+    Ok(ai_answer)
 }
 
 // Function to parse transcript JSON into full transcript string
