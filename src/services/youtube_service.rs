@@ -7,6 +7,12 @@ pub async fn get_youtube_search(channel_id: &str) -> Result<Root, Box<dyn std::e
     let url = "https://www.googleapis.com/youtube/v3/search";
 
     let key = config::Config::from_env()?.youtube_api_key;
+    if key.trim().is_empty() {
+        return Err("YOUTUBE_API_KEY is empty; set the secret/env before running".into());
+    }
+    if channel_id.trim().is_empty() {
+        return Err("channel_id is empty; set KSFORWORD_CHANNEL_ID before running".into());
+    }
     let query_params = [
         ("part", "snippet"),
         ("channelId", channel_id),
