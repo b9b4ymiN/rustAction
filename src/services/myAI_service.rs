@@ -1,4 +1,5 @@
 use reqwest::Client;
+use tokio::time::{sleep, Duration};
 
 use crate::{config::Config, models::myAI_response::Root};
 
@@ -8,10 +9,10 @@ pub async fn chat_with_ai(
     config: &Config,
     content: String,
 ) -> Result<Root, Box<dyn std::error::Error>> {
-
-    print!("Sending to myAI API");
+    println!("Sending to myAI API");
     let myAI_url = &config.my_ai_api_url;
-    print!("myAI_url: {}", myAI_url);
+    println!("myAI_url: {}", myAI_url);
+
     let client = Client::new();
     let body = json!({
         "persona": "ks-discord",
@@ -24,16 +25,69 @@ pub async fn chat_with_ai(
         ]
     });
 
-    let res = client
-        .post(myAI_url)
-        .header("accept", "application/json")
-        .header("content-type", "application/json")
-        .json(&body)
-        .send()
-        .await?
-        .error_for_status()? // ถ้า status code != 2xx จะ return error
-        .json::<Root>()
-        .await?;
+    // Retry policy: try a few times for transient server/network errors (5xx or transport errors).
+    let max_retries = 3usize;
+    let mut attempt = 0usize;
 
-    Ok(res)
+    loop {
+        attempt += 1;
+        let resp_result = client
+            .post(myAI_url)
+            .header("accept", "application/json")
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await;
+
+        match resp_result {
+            Ok(resp) => {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                if status.is_success() {
+                    // Parse JSON
+                    let parsed: Result<Root, _> = serde_json::from_str(&text);
+                    match parsed {
+                        Ok(root) => return Ok(root),
+                        Err(parse_err) => {
+                            return Err(format!(
+                                "Failed to parse myAI response JSON: {}\nbody: {}",
+                                parse_err, text
+                            )
+                            .into());
+                        }
+                    }
+                } else if status.is_server_error() && attempt < max_retries {
+                    // 5xx — retry after backoff
+                    eprintln!(
+                        "myAI API returned server error ({}). attempt {}/{}. body: {}",
+                        status, attempt, max_retries, text
+                    );
+                    let backoff = Duration::from_millis(500 * (attempt as u64));
+                    sleep(backoff).await;
+                    continue;
+                } else {
+                    // Client error (4xx) or server error after retries — return a descriptive error
+                    return Err(format!(
+                        "myAI API request failed with status {}. body: {}",
+                        status, text
+                    )
+                    .into());
+                }
+            }
+            Err(err) => {
+                // Network/transport error; may be transient
+                if attempt < max_retries {
+                    eprintln!(
+                        "myAI request error (attempt {}/{}): {}. retrying...",
+                        attempt, max_retries, err
+                    );
+                    let backoff = Duration::from_millis(500 * (attempt as u64));
+                    sleep(backoff).await;
+                    continue;
+                } else {
+                    return Err(format!("myAI request failed: {}", err).into());
+                }
+            }
+        }
+    }
 }

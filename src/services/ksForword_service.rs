@@ -27,7 +27,10 @@ pub async fn get_lastest_ksForword(config: &Config) -> Result<(), Box<dyn std::e
     let lastest = filtered.first();
 
     if let Some(item) = lastest {
-        let video_id = item.id.as_video_id().unwrap_or_else(|| "No video id found".to_string());
+        let video_id = item
+            .id
+            .as_video_id()
+            .unwrap_or_else(|| "No video id found".to_string());
 
         println!("video id: {}", video_id);
 
@@ -38,6 +41,8 @@ pub async fn get_lastest_ksForword(config: &Config) -> Result<(), Box<dyn std::e
             publish_time: item.snippet.publish_time.clone().unwrap_or_default(),
         };
 
+        println!("Found KS Forward Video: {}", mapped.title);
+
         // Get mock transcript and parse
         let use_mock_data = config.use_mock_data;
         let transcript_json = if use_mock_data {
@@ -45,19 +50,28 @@ pub async fn get_lastest_ksForword(config: &Config) -> Result<(), Box<dyn std::e
         } else {
             get_youtube_transcript(&mapped.link).await?
         };
+        print!("Transcript fetched.");
 
         let full_transcript = parse_transcript_fullscript(transcript_json).await?;
-        //println!("Full Transcript: {}", full_transcript);
+        println!("Full Transcript length: {}", full_transcript.len());
 
-        //chat with AI
-        let ai_response =
-            crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
-        let ai_answer = ai_response.answer;
-        //println!("AI Answer: {}", ai_answer);
+        if full_transcript != "" && full_transcript.len() > 0 {
+            println!("Transcript successfully retrieved and parsed.");
+            
+            //chat with AI
+            let ai_response =
+                crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
+            let ai_answer = ai_response.answer;
+            println!("AI Answer length: {}", ai_answer.len());
 
-        // send to discord
-        let message = ai_answer;
-        crate::services::discord_service::send_message(&mapped.title, &message).await?;
+            // send to discord
+            let message = ai_answer;
+            crate::services::discord_service::send_message(&mapped.title, &message).await?;
+            println!("Message sent to Discord.");
+            println!("KS Forward processing completed.");
+        } else {
+            println!("Transcript is empty.");
+        }
     } else {
         println!("No found data :  KS Forward");
     }
@@ -81,7 +95,12 @@ pub async fn get_summary_link(
     );
 
     let transcript_json = get_youtube_transcript(video_link).await?;
+    print!("Transcript JSON fetched.");
+
     let full_transcript = parse_transcript_fullscript(transcript_json).await?;
+    print!("Full transcript parsed.");
+    print!("Transcript length: {}", full_transcript.len());
+
     let ai_response = crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
     let ai_answer = ai_response.answer;
 
