@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     get_lastest_ksForword(&config).await?;
 
     //manul test link
-    //let test_link = "https://www.youtube.com/watch?v=snsuWNDhmLc";
+    //let test_link = "https://www.youtube.com/watch?v=2vl2GGVbIwU";
     //get_summary_link(&config, test_link).await?;
 
     Ok(())

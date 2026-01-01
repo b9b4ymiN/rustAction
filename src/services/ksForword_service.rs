@@ -103,6 +103,7 @@ pub async fn get_summary_link(
 
     let ai_response = crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
     let ai_answer = ai_response.answer;
+    //print!("AI Answer: {}", ai_answer);
 
     //send to discord
     let message = ai_answer.clone();

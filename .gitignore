@@ -16,6 +16,9 @@
 logs/
 *.log
 
+# Cache
+transcript_cache/
+
 # Docker
 docker-compose.override.yml
 

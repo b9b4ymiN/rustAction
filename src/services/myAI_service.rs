@@ -42,6 +42,8 @@ pub async fn chat_with_ai(
         match resp_result {
             Ok(resp) => {
                 let status = resp.status();
+                let url = resp.url().clone();
+                let headers = resp.headers().clone();
                 let text = resp.text().await.unwrap_or_default();
                 if status.is_success() {
                     // Parse JSON
@@ -50,17 +52,17 @@ pub async fn chat_with_ai(
                         Ok(root) => return Ok(root),
                         Err(parse_err) => {
                             return Err(format!(
-                                "Failed to parse myAI response JSON: {}\nbody: {}",
-                                parse_err, text
+                                "Failed to parse myAI response JSON: {}\nurl: {}\nheaders: {:?}\nbody: {}",
+                                parse_err, url, headers, text
                             )
                             .into());
                         }
                     }
                 } else if status.is_server_error() && attempt < max_retries {
-                    // 5xx — retry after backoff
+                    // 5xx — retry after backoff; log more details to help debugging
                     eprintln!(
-                        "myAI API returned server error ({}). attempt {}/{}. body: {}",
-                        status, attempt, max_retries, text
+                        "myAI API returned server error ({}). attempt {}/{}. url: {}\nheaders: {:?}\nbody: {}",
+                        status, attempt, max_retries, url, headers, text
                     );
                     let backoff = Duration::from_millis(500 * (attempt as u64));
                     sleep(backoff).await;
@@ -68,8 +70,8 @@ pub async fn chat_with_ai(
                 } else {
                     // Client error (4xx) or server error after retries — return a descriptive error
                     return Err(format!(
-                        "myAI API request failed with status {}. body: {}",
-                        status, text
+                        "myAI API request failed with status {}. url: {}\nheaders: {:?}\nbody: {}",
+                        status, url, headers, text
                     )
                     .into());
                 }
