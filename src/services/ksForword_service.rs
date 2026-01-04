@@ -57,16 +57,31 @@ pub async fn get_lastest_ksForword(config: &Config) -> Result<(), Box<dyn std::e
 
         if full_transcript != "" && full_transcript.len() > 0 {
             println!("Transcript successfully retrieved and parsed.");
-            
+
             //chat with AI
             let ai_response =
                 crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
             let ai_answer = ai_response.answer;
             println!("AI Answer length: {}", ai_answer.len());
+            println!(
+                "AI Answer first 200 chars: {}",
+                &ai_answer.chars().take(200).collect::<String>()
+            );
+
+            // Check if message is too long for Discord (>5500 chars)
+            const DISCORD_MAX_LENGTH: usize = 5500;
+            let final_message = if ai_answer.len() > DISCORD_MAX_LENGTH {
+                println!("WARNING: AI response is too long for Discord ({} chars), formatting for Discord...", ai_answer.len());
+                let discord_response =
+                    crate::services::myAI_service::chat_with_ai_msg4Discord(config, ai_answer)
+                        .await?;
+                discord_response.answer
+            } else {
+                ai_answer
+            };
 
             // send to discord
-            let message = ai_answer;
-            crate::services::discord_service::send_message(&mapped.title, &message).await?;
+            crate::services::discord_service::send_message(&mapped.title, &final_message).await?;
             println!("Message sent to Discord.");
             println!("KS Forward processing completed.");
         } else {
@@ -103,17 +118,36 @@ pub async fn get_summary_link(
 
     let ai_response = crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
     let ai_answer = ai_response.answer;
-    //print!("AI Answer: {}", ai_answer);
+    println!("AI Answer length: {}", ai_answer.len());
+
+    // Check if message is too long for Discord (>5500 chars)
+    const DISCORD_MAX_LENGTH: usize = 5500;
+    println!("checking Discord length...");
+    let final_message = if ai_answer.len() > DISCORD_MAX_LENGTH {
+        println!(
+            "Discord length too long. {} chars : reformatting",
+            ai_answer.len()
+        );
+        println!("send to AI to reformat for Discord...");
+        let discord_response =
+            crate::services::myAI_service::chat_with_ai_msg4Discord(config, ai_answer).await?;
+        discord_response.answer
+    } else {
+        println!(
+            "Discord length OK. {} chars : keep",
+            ai_answer.len()
+        );
+        ai_answer.clone()
+    };
 
     //send to discord
-    let message = ai_answer.clone();
     crate::services::discord_service::send_message(
         &detail.items[0].snippet.title.clone().unwrap_or_default(),
-        &message,
+        &final_message,
     )
     .await?;
 
-    Ok(ai_answer)
+    Ok(final_message)
 }
 
 // Function to parse transcript JSON into full transcript string

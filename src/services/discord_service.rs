@@ -16,11 +16,21 @@ pub async fn send_message(title: &str, message: &str) -> Result<(), Box<dyn std:
 
         // Check if message is wrapped in markdown code fence (handle newlines properly)
         let json_str = if trimmed.starts_with("```") {
-            let lines: Vec<&str> = trimmed.lines().collect();
-            // Check if first line is fence and last line is closing fence
-            if lines.len() > 2 && lines[0].starts_with("```") && lines[lines.len() - 1] == "```" {
-                // Join lines between fences (skip first and last)
-                lines[1..lines.len()-1].join("\n")
+            // Find the first newline (end of opening fence)
+            if let Some(first_newline_pos) = trimmed.find('\n') {
+                let content_start = first_newline_pos + 1;
+                // Find the last occurrence of ``` (closing fence)
+                if let Some(last_fence_pos) = trimmed.rfind("\n```") {
+                    if last_fence_pos > content_start {
+                        // Extract content between fences
+                        trimmed[content_start..last_fence_pos].to_string()
+                    } else {
+                        trimmed.to_string()
+                    }
+                } else {
+                    // No closing fence found, use original
+                    trimmed.to_string()
+                }
             } else {
                 trimmed.to_string()
             }
@@ -38,13 +48,21 @@ pub async fn send_message(title: &str, message: &str) -> Result<(), Box<dyn std:
                 } else {
                     println!("✗ No 'answer' field found in JSON");
                     println!("JSON keys: {:?}", json_val.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+                    // If no answer field, use the extracted JSON content as is
                     json_str
                 }
             }
             Err(e) => {
                 println!("✗ Failed to parse as JSON: {}", e);
-                println!("First 300 chars of content: {}", &json_str.chars().take(300).collect::<String>());
-                json_str
+                // If JSON parsing fails, it might be incomplete or malformed
+                // Return a user-friendly error message instead of broken JSON
+                if json_str.len() > 100 && json_str.contains("\"thought\"") {
+                    // Looks like it's our JSON format but broken - inform user
+                    "⚠️ เกิดข้อผิดพลาดในการประมวลผล AI response (JSON parsing failed)\n\nกรุณาลองใหม่อีกครั้ง".to_string()
+                } else {
+                    // Use the content as-is (might be plain text)
+                    json_str
+                }
             }
         }
     };
