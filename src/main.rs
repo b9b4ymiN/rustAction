@@ -15,11 +15,11 @@ use services::youtube_service::get_youtube_search;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
 
-    //get_lastest_ksForword(&config).await?;
+    get_lastest_ksForword(&config).await?;
 
     //manul test link
-    let test_link = "https://www.youtube.com/watch?v=ifqVMsXaRgg";
-    get_summary_link(&config, test_link).await?;
+    //let test_link = "https://www.youtube.com/watch?v=ifqVMsXaRgg";
+    //get_summary_link(&config, test_link).await?;
 
     Ok(())
 }

@@ -32,8 +32,8 @@ pub async fn chat_with_ai(
 
     let client = Client::new();
     let body = json!({
-        "persona": "deep_summary",
-        "user_id": "deep_summary",
+        "persona": "ks-summary",
+        "user_id": "ks-summary",
         "messages": [
             {
                 "role": "user",
