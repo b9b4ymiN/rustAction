@@ -17,7 +17,8 @@ pub async fn chat_with_ai(
     let myAI_url = &config.my_ai_api_url;
     let api_key = &config.my_ai_api_key;
     println!("myAI_url: {}", myAI_url);
-    //println!("API Key: {}", api_key); // For debugging; remove in production
+    println!("API Key length: {} chars", api_key.len());
+    println!("API Key preview: {}...{}", &api_key[..8.min(api_key.len())], &api_key[api_key.len().saturating_sub(8)..]);
 
     // Log content size to help debug
     let content_len = content.chars().count();

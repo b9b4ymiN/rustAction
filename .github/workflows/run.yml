@@ -23,6 +23,18 @@ jobs:
           MY_AI_API_KEY=${{ secrets.MY_AI_API_KEY }}
           DISCORD_KS_BOT_TOKEN=${{ secrets.DISCORD_KS_BOT_TOKEN }}
           EOF
+      - name: Verify .env file
+        run: |
+          echo "=== .env file created ==="
+          echo "Checking if MY_AI_API_KEY is set..."
+          if grep -q "MY_AI_API_KEY=" .env && [ -n "${{ secrets.MY_AI_API_KEY }}" ]; then
+            echo "✓ MY_AI_API_KEY is set (length: $(echo "${{ secrets.MY_AI_API_KEY }}" | wc -c) chars)"
+          else
+            echo "✗ MY_AI_API_KEY is NOT set or is empty!"
+            exit 1
+          fi
+          echo "Checking all required variables..."
+          grep -E "^(API_URL|TOKEN|YOUTUBE_API_KEY|SUPABASE_API_KEY|KSFORWORD_CHANNEL_ID|MY_AI_API_URL|MY_AI_API_KEY|DISCORD_KS_BOT_TOKEN)=" .env | sed 's/=.*/=***/'
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
