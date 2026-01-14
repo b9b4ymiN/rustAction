@@ -20,6 +20,7 @@ jobs:
           KSFORWORD_CHANNEL_ID=${{ secrets.KSFORWORD_CHANNEL_ID }}
           USE_MOCK_DATA=${{ secrets.USE_MOCK_DATA }}
           MY_AI_API_URL=${{ secrets.MY_AI_API_URL }}
+          MY_AI_API_KEY=${{ secrets.MY_AI_API_KEY }}
           DISCORD_KS_BOT_TOKEN=${{ secrets.DISCORD_KS_BOT_TOKEN }}
           EOF
       - name: Install Rust toolchain
