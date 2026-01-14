@@ -1,51 +1,284 @@
-# KS Forward Daily Summary (Rust)
+# KS Forward Video Processor
 
-Rust async service that fetches the latest **KS Forward** YouTube video, pulls its transcript, asks your AI service to summarize it, and posts the result to Discord. A GitHub Actions workflow (`.github/workflows/run.yml`) schedules it to run Mon�Fri at 11:00 Asia/Bangkok.
+> Automated YouTube transcript summarization with AI-powered analysis and Discord integration
 
-## What it does
-- Searches the KS Forward channel (`KSFORWORD_CHANNEL_ID`) for the newest video titled "KS Forward"
-- Gets the transcript via the SupaData transcript API (or local mock data when enabled)
-- Sends the full transcript to your AI endpoint (`MY_AI_API_URL`) for summarization
-- Posts the AI answer to a Discord webhook, chunking long messages into multiple embeds
+[![Rust](https://img.shields.io/badge/rust-1.83+-orange.svg)](https://www.rust-lang.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Prerequisites
-- Rust toolchain (stable) with Cargo
-- Network access to YouTube Data API, SupaData transcript API, your AI endpoint, and Discord webhook
+## 🚀 Features
 
-## Configuration (.env)
-Create a `.env` file (kept out of git) or set these as GitHub Secrets for CI:
+- **Automated Video Processing**: Fetches and processes the latest KS Forward videos
+- **AI-Powered Summarization**: Leverages AI to generate concise Investor's Notes
+- **Smart Discord Integration**: Automatically posts formatted summaries to Discord
+- **Transcript Caching**: Reduces API calls with intelligent caching
+- **Retry Logic**: Handles transient failures with automatic retries
+- **Production-Ready**: Structured logging, error handling, and Docker support
+- **GitHub Actions**: Automated daily runs with monitoring
 
-| Variable | Description |
-| --- | --- |
-| `API_URL` | Reserved/custom API base (loaded but currently unused in code) |
-| `TOKEN` | Reserved/custom token (loaded but currently unused in code) |
-| `YOUTUBE_API_KEY` | YouTube Data API key for channel search |
-| `SUPABASE_API_KEY` | SupaData transcript API key (`x-api-key`) |
-| `KSFORWORD_CHANNEL_ID` | YouTube channel ID to monitor |
-| `USE_MOCK_DATA` | `true` to use `src/mock_data/example_transcript.json` instead of calling transcript API |
-| `MY_AI_API_URL` | Your AI summarizer endpoint (expects JSON with `persona`, `user_id`, `messages`) |
-| `DISCORD_KS_BOT_TOKEN` | Discord webhook URL for posting the summary |
+## 📋 Prerequisites
 
-> Keep secrets out of the repo. In GitHub Actions, set them under **Settings ? Secrets and variables ? Actions** with the same names.
+- Rust 1.83+
+- Docker (optional, for containerized deployment)
+- Required API keys:
+  - YouTube Data API v3
+  - Supabase (or your transcript API)
+  - AI Service API
+  - Discord Webhook URL
 
-## Run locally
+## 🔧 Configuration
+
+Create a `.env` file in the project root:
+
 ```bash
-cargo run --release
+# API Configuration
+API_URL=https://api.example.com
+TOKEN=your_api_token_here
+
+# YouTube Configuration
+YOUTUBE_API_KEY=your_youtube_api_key
+KSFORWORD_CHANNEL_ID=UCxxxxxxxxxxxxxxxxxx
+
+# Transcript API
+SUPABASE_API_KEY=your_supabase_api_key
+
+# AI Service
+MY_AI_API_URL=http://localhost:8000/chat
+
+# Discord Integration
+DISCORD_KS_BOT_TOKEN=https://discord.com/api/webhooks/...
+
+# Feature Flags
+USE_MOCK_DATA=false
+RUST_LOG=info
 ```
-- With mock transcript (offline-friendly): set `USE_MOCK_DATA=true` in `.env`.
 
-## GitHub Actions (scheduled run)
-- Workflow: `.github/workflows/run.yml`
-- Triggers: `cron: "0 4 * * 1-5"` with `TZ: Asia/Bangkok` ? runs 11:00 Mon�Fri; also supports manual `workflow_dispatch`
-- Steps: checkout ? create `.env` from Secrets ? install Rust stable ? `cargo build --release` ? `cargo run --release`
+> **Security**: Keep secrets out of the repo. In GitHub Actions, set them under **Settings → Secrets and variables → Actions** with the same names.
 
-## Project structure
-- `src/main.rs` � entrypoint; loads config and kicks off KS Forward job
-- `src/config.rs` � loads environment variables
-- `src/services/` � YouTube search, transcript fetch, AI call, Discord webhook, mock helpers
-- `src/models/` � request/response models for APIs and Discord payloads
-- `src/mock_data/example_transcript.json` � sample transcript used when `USE_MOCK_DATA=true`
+## 🏃 Local Development
 
-## Notes
-- Discord embed description limit is handled by chunking to avoid failures.
-- If keys were ever committed, rotate them and replace with Secrets before deploying.
+### Using Cargo
+
+```bash
+# Install dependencies
+cargo build
+
+# Run the processor
+cargo run --release
+
+# Run with debug logging
+RUST_LOG=debug cargo run
+
+# Run tests
+cargo test
+
+# Check code
+cargo clippy
+cargo fmt
+```
+
+### Using Docker
+
+```bash
+# Build the container
+docker build -t schrust:latest .
+
+# Run with docker-compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Run manually
+docker run --rm \
+  -e API_URL="$API_URL" \
+  -e YOUTUBE_API_KEY="$YOUTUBE_API_KEY" \
+  -e DISCORD_KS_BOT_TOKEN="$DISCORD_KS_BOT_TOKEN" \
+  schrust:latest
+```
+
+## 📦 Deployment
+
+### GitHub Actions
+
+The workflow automatically runs daily at 4:00 AM Bangkok time (UTC+7).
+
+**Workflow File**: `.github/workflows/daily-run.yml`
+
+**Triggers**:
+- Scheduled: `cron: "0 21 * * *"` (9 PM UTC = 4 AM Bangkok)
+- Manual: `workflow_dispatch`
+
+**Required Secrets**:
+- `API_URL`
+- `TOKEN`
+- `YOUTUBE_API_KEY`
+- `SUPABASE_API_KEY`
+- `KSFORWORD_CHANNEL_ID`
+- `MY_AI_API_URL`
+- `DISCORD_KS_BOT_TOKEN`
+- `USE_MOCK_DATA` (optional, defaults to `false`)
+
+To manually trigger:
+1. Go to **Actions** tab in GitHub
+2. Select **"KS Forward Daily Runner"**
+3. Click **"Run workflow"**
+
+### Docker Deployment
+
+```bash
+# Pull latest image
+docker pull your-registry/schrust:latest
+
+# Run with environment variables
+docker run -d \
+  --name ks-forward-processor \
+  --env-file .env \
+  -v $(pwd)/transcript_cache:/app/transcript_cache \
+  your-registry/schrust:latest
+```
+
+## 🏗️ Project Structure
+
+```
+schRust/
+├── src/
+│   ├── main.rs              # Application entry point
+│   ├── config.rs            # Configuration management
+│   ├── error.rs             # Error types and handling
+│   ├── models/              # Data models
+│   │   ├── youtube_transcript.rs
+│   │   ├── myAI_response.rs
+│   │   └── discord.rs
+│   └── services/            # Business logic
+│       ├── http_client.rs   # Optimized HTTP client
+│       ├── youtube_service.rs
+│       ├── supabase_service.rs
+│       ├── myAI_service.rs
+│       ├── discord_service.rs
+│       └── ksForword_service.rs
+├── .github/workflows/       # CI/CD workflows
+├── transcript_cache/        # Cached transcripts
+├── Cargo.toml
+├── Dockerfile
+└── docker-compose.yml
+```
+
+## 🔍 Monitoring
+
+### Logs
+
+The application uses structured logging with `tracing`:
+
+```bash
+# View logs in Docker
+docker-compose logs -f schrust
+
+# Filter by level
+RUST_LOG=warn cargo run
+
+# Filter by module
+RUST_LOG=schRust::services::myAI_service=debug cargo run
+```
+
+### Health Checks
+
+```bash
+# Check if container is healthy
+docker ps --filter name=ks-forward-processor
+
+# Detailed health status
+docker inspect ks-forward-processor --format='{{.State.Health.Status}}'
+```
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+cargo test
+
+# Run with output
+cargo test -- --nocapture
+
+# Run specific test
+cargo test test_error_categories
+```
+
+## ⚡ Performance
+
+- **Connection Pooling**: Reuses HTTP connections
+- **Caching**: Transcripts cached locally to reduce API calls
+- **Optimized Binary**: Release builds with LTO and stripping
+- **Async Runtime**: Tokio-based async I/O
+
+### Build Optimizations
+
+```toml
+[profile.release]
+opt-level = 3        # Maximum optimization
+lto = true           # Link-time optimization
+codegen-units = 1    # Better optimization at cost of compile time
+strip = true         # Remove debug symbols
+panic = "abort"      # Reduce binary size
+```
+
+## 🐛 Troubleshooting
+
+### Build Errors
+
+```bash
+# Update Rust toolchain
+rustup update stable
+
+# Clean build artifacts
+cargo clean
+
+# Rebuild
+cargo build --release
+```
+
+### Runtime Errors
+
+1. **Missing environment variables**: Ensure all required variables are set in `.env`
+2. **API failures**: Check API keys and rate limits
+3. **Discord webhook fails**: Verify webhook URL and message format
+
+### Debug Mode
+
+```bash
+# Enable detailed logging
+RUST_LOG=debug RUST_BACKTRACE=1 cargo run
+
+# Enable trace for specific module
+RUST_LOG=schRust::services::myAI_service=trace cargo run
+```
+
+## 🔒 Security
+
+- All secrets stored as GitHub Secrets
+- Configuration validation at startup
+- Sensitive data masked in logs
+- Non-root Docker user
+- Minimal attack surface
+
+## 📝 License
+
+This project is licensed under the MIT License.
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📧 Support
+
+For issues and questions:
+- Open an issue on GitHub
+- Check existing documentation
+- Review logs for error details
+
+---
+
+Built with ❤️ using [Rust](https://www.rust-lang.org/)

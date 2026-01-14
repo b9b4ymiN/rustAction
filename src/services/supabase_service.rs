@@ -86,6 +86,14 @@ pub async fn get_youtube_transcript(url: &str) -> Result<Root, Box<dyn std::erro
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
 
+                // Log the raw response for debugging
+                println!("=== Transcript API Response ===");
+                println!("Status: {}", status);
+                println!("Body length: {} chars", body.len());
+                println!("Body preview (first 500 chars): {}", &body.chars().take(500).collect::<String>());
+                //println!("Full body: {}", body);
+                println!("================================");
+
                 if status.is_success() {
                     let transcript: Root = serde_json::from_str(&body)?;
                     

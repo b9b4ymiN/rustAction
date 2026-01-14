@@ -1,3 +1,5 @@
+use std::fs::Permissions;
+
 use reqwest::Client;
 use tokio::time::{sleep, Duration};
 
@@ -5,26 +7,39 @@ use crate::{config::Config, models::myAI_response::Root};
 
 use serde_json::json;
 
+/// Legacy method - sends simple text content to AI service
+/// Deprecated: Use `chat_with_ai_v2` instead
 pub async fn chat_with_ai(
     config: &Config,
     content: String,
 ) -> Result<Root, Box<dyn std::error::Error>> {
-    println!("Sending to myAI API");
+    println!("Sending to myAI API (legacy format)");
     let myAI_url = &config.my_ai_api_url;
+    let api_key = &config.my_ai_api_key;
     println!("myAI_url: {}", myAI_url);
+    //println!("API Key: {}", api_key); // For debugging; remove in production
 
     // Log content size to help debug
     let content_len = content.chars().count();
     println!("Request content length: {} chars", content_len);
     if content_len > 10000 {
-        println!("WARNING: Content is very long ({} chars), this may cause issues", content_len);
-        println!("Content preview (first 200 chars): {}", &content.chars().take(200).collect::<String>());
+        println!(
+            "WARNING: Content is very long ({} chars), this may cause issues",
+            content_len
+        );
+        println!(
+            "Content preview (first 200 chars): {}",
+            &content.chars().take(200).collect::<String>()
+        );
     }
 
-    // Truncate content if it's too long (adjust limit as needed for your downstream AI service)
-    const MAX_CONTENT_LENGTH: usize = 100000; // Reduced limit - downstream AI service may have strict limits
+    // Truncate content if it's too long
+    const MAX_CONTENT_LENGTH: usize = 100000;
     let processed_content = if content_len > MAX_CONTENT_LENGTH {
-        println!("Truncating content from {} to {} chars", content_len, MAX_CONTENT_LENGTH);
+        println!(
+            "Truncating content from {} to {} chars",
+            content_len, MAX_CONTENT_LENGTH
+        );
         content.chars().take(MAX_CONTENT_LENGTH).collect::<String>()
     } else {
         content
@@ -42,7 +57,7 @@ pub async fn chat_with_ai(
         ]
     });
 
-    // Retry policy: try a few times for transient server/network errors (5xx or transport errors).
+    // Retry policy
     let max_retries = 3usize;
     let mut attempt = 0usize;
 
@@ -52,6 +67,7 @@ pub async fn chat_with_ai(
             .post(myAI_url)
             .header("accept", "application/json")
             .header("content-type", "application/json")
+            .header("X-API-Key", api_key) // ✅ Added X-API-Key header
             .json(&body)
             .send()
             .await;
@@ -67,11 +83,13 @@ pub async fn chat_with_ai(
                     let trimmed = text.trim();
                     if !trimmed.starts_with('{') && !trimmed.starts_with('[') {
                         // Server returned plain text instead of JSON
-                        // This is a server bug, but we can handle it gracefully
                         eprintln!("=== Server returned plain text instead of JSON ===");
                         eprintln!("URL: {}", url);
                         eprintln!("Response length: {} chars", text.len());
-                        eprintln!("Response preview (first 200 chars): {}", &text.chars().take(200).collect::<String>());
+                        eprintln!(
+                            "Response preview (first 200 chars): {}",
+                            &text.chars().take(200).collect::<String>()
+                        );
                         eprintln!("==============================================");
 
                         // Create a mock Root response with the plain text as the answer
@@ -90,7 +108,6 @@ pub async fn chat_with_ai(
                         Ok(root) => return Ok(root),
                         Err(parse_err) => {
                             // Try to extract JSON object from the response
-                            // Handle cases where there are trailing characters
                             let fallback_result = if let Some(start) = text.find('{') {
                                 if let Some(end) = text.rfind('}') {
                                     let json_str = &text[start..=end];
@@ -103,7 +120,9 @@ pub async fn chat_with_ai(
                             };
 
                             if let Some(root) = fallback_result {
-                                eprintln!("=== JSON extracted from response with trailing characters ===");
+                                eprintln!(
+                                    "=== JSON extracted from response with trailing characters ==="
+                                );
                                 return Ok(root);
                             }
 
@@ -112,7 +131,10 @@ pub async fn chat_with_ai(
                             eprintln!("Status: {}", status);
                             eprintln!("URL: {}", url);
                             eprintln!("Response body length: {} bytes", text.len());
-                            eprintln!("Response body preview (first 200 chars): {}", &text.chars().take(200).collect::<String>());
+                            eprintln!(
+                                "Response body preview (first 200 chars): {}",
+                                &text.chars().take(200).collect::<String>()
+                            );
                             eprintln!("Full response body:\n{}", text);
                             eprintln!("Parse error: {}", parse_err);
                             eprintln!("========================");
@@ -124,7 +146,7 @@ pub async fn chat_with_ai(
                         }
                     }
                 } else if status.is_server_error() && attempt < max_retries {
-                    // 5xx — retry after backoff; log more details to help debugging
+                    // 5xx — retry after backoff
                     eprintln!(
                         "myAI API returned server error ({}). attempt {}/{}. url: {}\nheaders: {:?}\nbody: {}",
                         status, attempt, max_retries, url, headers, text
@@ -133,7 +155,7 @@ pub async fn chat_with_ai(
                     sleep(backoff).await;
                     continue;
                 } else {
-                    // Client error (4xx) or server error after retries — return a descriptive error
+                    // Client error (4xx) or server error after retries
                     return Err(format!(
                         "myAI API request failed with status {}. url: {}\nheaders: {:?}\nbody: {}",
                         status, url, headers, text
@@ -159,53 +181,89 @@ pub async fn chat_with_ai(
     }
 }
 
-pub async fn chat_with_ai_msg4Discord(
+/// New V2 API method - uses updated API format with X-API-Key header and structured content
+///
+/// # Example
+/// ```bash
+/// curl -X POST http://localhost:8000/chat \
+///   -H "Content-Type: application/json" \
+///   -H "X-API-Key: dev-key-123456789" \
+///   -d '{
+///     "persona": "oi-trader",
+///     "messages": [
+///       {"role": "user", "content": [{"type": "text", "text": "Analyze BTC trend"}]}
+///     ]
+///   }'
+/// ```
+pub async fn chat_with_ai_v2(
     config: &Config,
-    content: String,
+    persona: &str,
+    content: &str,
 ) -> Result<Root, Box<dyn std::error::Error>> {
-    println!("Sending to discord API");
+    println!("Sending to myAI API v2");
     let myAI_url = &config.my_ai_api_url;
-    println!("discord myAI_url [discord-sum] : {}", myAI_url);
+    let api_key = &config.my_ai_api_key;
+    println!("myAI_url: {}", myAI_url);
+    println!("persona: {}", persona);
 
-    // Log content size to help debug
-    let content_len = content.len();
-    println!("Original content length: {} chars", content_len);
+    // Log content size
+    let content_len = content.chars().count();
+    println!("Request content length: {} chars", content_len);
     if content_len > 10000 {
-        println!("WARNING: Content is very long ({} chars), this may cause issues", content_len);
-        println!("Content preview (first 200 chars): {}", &content.chars().take(200).collect::<String>());
+        println!(
+            "WARNING: Content is very long ({} chars), this may cause issues",
+            content_len
+        );
     }
 
-    // Truncate content if it's too long (adjust limit as needed for your downstream AI service)
-    const MAX_CONTENT_LENGTH: usize = 100000; // Reduced limit - downstream AI service may have strict limits
+    // Truncate content if needed
+    const MAX_CONTENT_LENGTH: usize = 100000;
     let processed_content = if content_len > MAX_CONTENT_LENGTH {
-        println!("Truncating content from {} to {} chars", content_len, MAX_CONTENT_LENGTH);
+        println!(
+            "Truncating content from {} to {} chars",
+            content_len, MAX_CONTENT_LENGTH
+        );
         content.chars().take(MAX_CONTENT_LENGTH).collect::<String>()
     } else {
-        content
+        content.to_string()
     };
 
     let client = Client::new();
+
+    // New API format with structured content
     let body = json!({
-        "persona": "discord-sum",
-        "user_id": "discord-sum",
+        "persona": persona,
         "messages": [
             {
                 "role": "user",
-                "content": processed_content
+                "content": [
+                    {
+                        "type": "text",
+                        "text": processed_content
+                    }
+                ]
             }
         ]
     });
 
-    // Retry policy: try a few times for transient server/network errors (5xx or transport errors).
+    println!(
+        "Request body: {}",
+        serde_json::to_string_pretty(&body).unwrap_or_default()
+    );
+
+    // Retry policy
     let max_retries = 3usize;
     let mut attempt = 0usize;
 
     loop {
         attempt += 1;
+        println!("Sending request (attempt {}/{})...", attempt, max_retries);
+        println!("API Key: {}", api_key);
         let resp_result = client
             .post(myAI_url)
             .header("accept", "application/json")
             .header("content-type", "application/json")
+            .header("X-API-Key", api_key)
             .json(&body)
             .send()
             .await;
@@ -216,19 +274,22 @@ pub async fn chat_with_ai_msg4Discord(
                 let url = resp.url().clone();
                 let headers = resp.headers().clone();
                 let text = resp.text().await.unwrap_or_default();
+
+                println!("Response status: {}", status);
+                println!("Response length: {} chars", text.len());
+
                 if status.is_success() {
-                    // Check if response is actually JSON
+                    // Check if response is JSON
                     let trimmed = text.trim();
                     if !trimmed.starts_with('{') && !trimmed.starts_with('[') {
-                        // Server returned plain text instead of JSON
-                        // This is a server bug, but we can handle it gracefully
-                        eprintln!("=== Server returned plain text instead of JSON ===");
+                        eprintln!("=== Server returned non-JSON response ===");
                         eprintln!("URL: {}", url);
-                        eprintln!("Response length: {} chars", text.len());
-                        eprintln!("Response preview (first 200 chars): {}", &text.chars().take(200).collect::<String>());
-                        eprintln!("==============================================");
+                        eprintln!(
+                            "Response preview: {}",
+                            &text.chars().take(200).collect::<String>()
+                        );
 
-                        // Create a mock Root response with the plain text as the answer
+                        // Fallback response
                         let fallback_response = Root {
                             answer: text.clone(),
                             events: vec![],
@@ -238,13 +299,16 @@ pub async fn chat_with_ai_msg4Discord(
                         return Ok(fallback_response);
                     }
 
-                    // Parse JSON - handle cases where API returns extra characters after JSON
+                    // Parse JSON
                     let parsed: Result<Root, _> = serde_json::from_str(&text);
                     match parsed {
-                        Ok(root) => return Ok(root),
+                        Ok(root) => {
+                            println!("✅ Successfully parsed AI response");
+                            println!("Session ID: {}", root.session_id);
+                            return Ok(root);
+                        }
                         Err(parse_err) => {
-                            // Try to extract JSON object from the response
-                            // Handle cases where there are trailing characters
+                            // Try to extract JSON from response with trailing characters
                             let fallback_result = if let Some(start) = text.find('{') {
                                 if let Some(end) = text.rfind('}') {
                                     let json_str = &text[start..=end];
@@ -257,58 +321,69 @@ pub async fn chat_with_ai_msg4Discord(
                             };
 
                             if let Some(root) = fallback_result {
-                                eprintln!("=== JSON extracted from response with trailing characters ===");
+                                eprintln!(
+                                    "⚠️  Extracted JSON from response with trailing characters"
+                                );
                                 return Ok(root);
                             }
 
-                            // Enhanced error logging
                             eprintln!("=== JSON Parse Error ===");
                             eprintln!("Status: {}", status);
-                            eprintln!("URL: {}", url);
-                            eprintln!("Response body length: {} bytes", text.len());
-                            eprintln!("Response body preview (first 200 chars): {}", &text.chars().take(200).collect::<String>());
-                            eprintln!("Full response body:\n{}", text);
                             eprintln!("Parse error: {}", parse_err);
-                            eprintln!("========================");
-                            return Err(format!(
-                                "Failed to parse myAI response JSON: {}\nurl: {}\nheaders: {:?}\nbody: {}",
-                                parse_err, url, headers, text
-                            )
-                            .into());
+                            eprintln!(
+                                "Response preview: {}",
+                                &text.chars().take(500).collect::<String>()
+                            );
+                            return Err(
+                                format!("Failed to parse AI response: {}", parse_err).into()
+                            );
                         }
                     }
                 } else if status.is_server_error() && attempt < max_retries {
-                    // 5xx — retry after backoff; log more details to help debugging
                     eprintln!(
-                        "myAI API returned server error ({}). attempt {}/{}. url: {}\nheaders: {:?}\nbody: {}",
-                        status, attempt, max_retries, url, headers, text
+                        "⚠️  Server error ({}) - retrying (attempt {}/{})",
+                        status, attempt, max_retries
                     );
                     let backoff = Duration::from_millis(500 * (attempt as u64));
                     sleep(backoff).await;
                     continue;
-                } else {
-                    // Client error (4xx) or server error after retries — return a descriptive error
+                } else if status.as_u16() == 401 {
+                    eprintln!("❌ Authentication failed - check MY_AI_API_KEY");
                     return Err(format!(
-                        "myAI API request failed with status {}. url: {}\nheaders: {:?}\nbody: {}",
-                        status, url, headers, text
+                        "Authentication failed with status {}. Please check MY_AI_API_KEY.",
+                        status
+                    )
+                    .into());
+                } else {
+                    return Err(format!(
+                        "AI API request failed with status {}. body: {}",
+                        status, text
                     )
                     .into());
                 }
             }
             Err(err) => {
-                // Network/transport error; may be transient
                 if attempt < max_retries {
                     eprintln!(
-                        "myAI request error (attempt {}/{}): {}. retrying...",
+                        "⚠️  Request error (attempt {}/{}): {}",
                         attempt, max_retries, err
                     );
                     let backoff = Duration::from_millis(500 * (attempt as u64));
                     sleep(backoff).await;
                     continue;
                 } else {
-                    return Err(format!("myAI request failed: {}", err).into());
+                    return Err(format!("AI request failed: {}", err).into());
                 }
             }
         }
     }
+}
+
+/// Discord-specific method - formats AI response for Discord
+/// Uses "ks-discord" persona for optimized Discord message formatting
+pub async fn chat_with_ai_msg4Discord(
+    config: &Config,
+    content: String,
+) -> Result<Root, Box<dyn std::error::Error>> {
+    chat_with_ai_v2(config, "ks-discord", &content).await
 }

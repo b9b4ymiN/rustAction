@@ -62,7 +62,12 @@ pub async fn get_lastest_ksForword(config: &Config) -> Result<(), Box<dyn std::e
             let ai_response =
                 crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
             let ai_answer = ai_response.answer;
-            println!("AI Answer length: {}", ai_answer.len());
+
+            // Detailed length logging
+            let byte_len = ai_answer.len();
+            let char_len = ai_answer.chars().count();
+            println!("AI Answer byte length: {}", byte_len);
+            println!("AI Answer char length: {}", char_len);
             println!(
                 "AI Answer first 200 chars: {}",
                 &ai_answer.chars().take(200).collect::<String>()
@@ -70,13 +75,19 @@ pub async fn get_lastest_ksForword(config: &Config) -> Result<(), Box<dyn std::e
 
             // Check if message is too long for Discord (>5500 chars)
             const DISCORD_MAX_LENGTH: usize = 5500;
-            let final_message = if ai_answer.len() > DISCORD_MAX_LENGTH {
-                println!("WARNING: AI response is too long for Discord ({} chars), formatting for Discord...", ai_answer.len());
+            println!("Checking if message exceeds Discord limit of {} chars...", DISCORD_MAX_LENGTH);
+
+            let final_message = if char_len > DISCORD_MAX_LENGTH {
+                println!("⚠️  AI response is too long for Discord ({} chars)", char_len);
+                println!("📤 Sending to AI for summarization with 'ks-discord' persona...");
                 let discord_response =
                     crate::services::myAI_service::chat_with_ai_msg4Discord(config, ai_answer)
                         .await?;
-                discord_response.answer
+                let summary = discord_response.answer;
+                println!("✅ Summarized to {} chars", summary.chars().count());
+                summary
             } else {
+                println!("✓ AI response length is within Discord limit ({} chars)", char_len);
                 ai_answer
             };
 
@@ -118,25 +129,27 @@ pub async fn get_summary_link(
 
     let ai_response = crate::services::myAI_service::chat_with_ai(config, full_transcript).await?;
     let ai_answer = ai_response.answer;
-    println!("AI Answer length: {}", ai_answer.len());
+
+    // Detailed length logging
+    let byte_len = ai_answer.len();
+    let char_len = ai_answer.chars().count();
+    println!("AI Answer byte length: {}", byte_len);
+    println!("AI Answer char length: {}", char_len);
 
     // Check if message is too long for Discord (>5500 chars)
     const DISCORD_MAX_LENGTH: usize = 5500;
-    println!("checking Discord length...");
-    let final_message = if ai_answer.len() > DISCORD_MAX_LENGTH {
-        println!(
-            "Discord length too long. {} chars : reformatting",
-            ai_answer.len()
-        );
-        println!("send to AI to reformat for Discord...");
+    println!("Checking if message exceeds Discord limit of {} chars...", DISCORD_MAX_LENGTH);
+
+    let final_message = if char_len > DISCORD_MAX_LENGTH {
+        println!("⚠️  AI response is too long for Discord ({} chars)", char_len);
+        println!("📤 Sending to AI for summarization with 'ks-discord' persona...");
         let discord_response =
             crate::services::myAI_service::chat_with_ai_msg4Discord(config, ai_answer).await?;
-        discord_response.answer
+        let summary = discord_response.answer;
+        println!("✅ Summarized to {} chars", summary.chars().count());
+        summary
     } else {
-        println!(
-            "Discord length OK. {} chars : keep",
-            ai_answer.len()
-        );
+        println!("✓ AI response length is within Discord limit ({} chars)", char_len);
         ai_answer.clone()
     };
 
@@ -154,13 +167,13 @@ pub async fn get_summary_link(
 pub async fn parse_transcript_fullscript(
     transcript_json: TranscriptRoot,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let content = transcript_json.content;
-    let mut full_transcript = String::new();
-    for entry in content {
-        full_transcript.push_str(&entry.text);
-        full_transcript.push(' '); // เพิ่มช่องว่างระหว่างข้อความ
-    }
-
+    // The API returns content as an array of objects with text field
+    // Join all text segments together
+    let full_transcript = transcript_json.content
+        .iter()
+        .map(|c| c.text.clone())
+        .collect::<Vec<_>>()
+        .join(" ");
     Ok(full_transcript)
 }
 

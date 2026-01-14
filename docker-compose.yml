@@ -1,0 +1,75 @@
+version: "3.9"
+
+services:
+  schrust:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: schrust:latest
+    container_name: ks-forward-processor
+    restart: unless-stopped
+
+    environment:
+      # API Configuration
+      - API_URL=${API_URL}
+      - TOKEN=${TOKEN}
+
+      # YouTube Configuration
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+      - KSFORWORD_CHANNEL_ID=${KSFORWORD_CHANNEL_ID}
+
+      # Transcript/Supabase Configuration
+      - SUPABASE_API_KEY=${SUPABASE_API_KEY}
+
+      # AI Service Configuration
+      - MY_AI_API_URL=${MY_AI_API_URL}
+
+      # Discord Configuration
+      - DISCORD_KS_BOT_TOKEN=${DISCORD_KS_BOT_TOKEN}
+
+      # Feature Flags
+      - USE_MOCK_DATA=${USE_MOCK_DATA:-false}
+
+      # Logging
+      - RUST_LOG=${RUST_LOG:-info}
+      - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
+
+    volumes:
+      # Persist transcript cache
+      - ./transcript_cache:/app/transcript_cache
+
+    # Optional: Add cron-like scheduling
+    # command: /app/schRust schedule
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Add monitoring with Prometheus
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   volumes:
+  #     - ./prometheus.yml:/etc/prometheus/prometheus.yml
+  #   ports:
+  #     - "9090:9090"
+
+  # Optional: Add Grafana for visualization
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - GF_SECURITY_ADMIN_PASSWORD=admin

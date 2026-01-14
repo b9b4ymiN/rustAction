@@ -1,0 +1,134 @@
+name: KS Forward Daily Runner
+
+on:
+  schedule:
+    # Run every day at 4:00 AM Bangkok time (UTC+7)
+    # cron: 0 4 * * * in Bangkok = 0 21 * * * in UTC
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual run'
+        required: false
+        default: 'Manual trigger'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  run:
+    name: Process KS Forward Videos
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      TZ: Asia/Bangkok
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔧 Configure Rust environment
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: 💾 Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: 💾 Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-index-
+
+      - name: 💾 Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-target-
+
+      - name: 🔍 Verify configuration
+        run: |
+          echo "Verifying required secrets..."
+          required_secrets=("API_URL" "TOKEN" "YOUTUBE_API_KEY" "SUPABASE_API_KEY" "KSFORWORD_CHANNEL_ID" "MY_AI_API_URL" "DISCORD_KS_BOT_TOKEN")
+          missing=0
+          for secret in "${required_secrets[@]}"; do
+            if [ -z "${{ secrets[secret] }}" ]; then
+              echo "❌ Missing secret: $secret"
+              missing=$((missing + 1))
+            else
+              echo "✅ Found: $secret"
+            fi
+          done
+          if [ $missing -gt 0 ]; then
+            echo "❌ $missing required secrets are missing!"
+            exit 1
+          fi
+          echo "✅ All required secrets are configured"
+
+      - name: 📝 Create environment file
+        run: |
+          cat <<EOF > .env
+          API_URL=${{ secrets.API_URL }}
+          TOKEN=${{ secrets.TOKEN }}
+          YOUTUBE_API_KEY=${{ secrets.YOUTUBE_API_KEY }}
+          SUPABASE_API_KEY=${{ secrets.SUPABASE_API_KEY }}
+          KSFORWORD_CHANNEL_ID=${{ secrets.KSFORWORD_CHANNEL_ID }}
+          USE_MOCK_DATA=${{ secrets.USE_MOCK_DATA || 'false' }}
+          MY_AI_API_URL=${{ secrets.MY_AI_API_URL }}
+          DISCORD_KS_BOT_TOKEN=${{ secrets.DISCORD_KS_BOT_TOKEN }}
+          EOF
+          echo "✅ Environment file created"
+
+      - name: 🎯 Run linter checks
+        run: |
+          cargo fmt -- --check
+          cargo clippy -- -D warnings
+
+      - name: 🔨 Build release binary
+        run: |
+          cargo build --release
+          echo "✅ Build completed successfully"
+
+      - name: ▶️ Run KS Forward processor
+        id: run_processor
+        run: |
+          echo "Starting KS Forward processing at $(date)"
+          cargo run --release
+          echo "✅ Processing completed at $(date)"
+
+      - name: 📊 Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-logs-${{ github.run_number }}
+          path: |
+            transcript_cache/
+          retention-days: 7
+
+      - name: ✅ Success notification
+        if: success()
+        run: |
+          echo "🎉 KS Forward processing completed successfully!"
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Run Number: ${{ github.run_number }}"
+
+      - name: ❌ Failure notification
+        if: failure()
+        run: |
+          echo "❌ KS Forward processing failed!"
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Please check the logs for details"
+          exit 1
