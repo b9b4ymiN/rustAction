@@ -3,6 +3,7 @@ use serde::Serialize;
 /// Discord Webhook Payload
 #[derive(Debug, Serialize)]
 pub struct DiscordWebhook {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     pub embeds: Option<Vec<DiscordEmbed>>,
 }

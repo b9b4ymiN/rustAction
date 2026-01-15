@@ -91,7 +91,7 @@ pub async fn send_message(title: &str, message: &str) -> Result<(), Box<dyn std:
         if batch_num == 1 {
             let json_payload = serde_json::to_string_pretty(&webhook).unwrap_or_default();
             info!("📋 Discord webhook payload:");
-            info!("{}", json_payload);
+            //info!("{}", json_payload);
         }
 
         // Retry logic for transient Discord errors
@@ -231,7 +231,7 @@ fn extract_clean_message(message: &str) -> String {
 
 /// Build Discord embeds from message, splitting if necessary
 fn build_embeds(title: &str, message: &str, now: chrono::DateTime<Local>) -> Vec<DiscordEmbed> {
-    const MAX_DESC: usize = 4000; // Safe limit for Discord embed description
+    const MAX_DESC: usize = 4000; // Safe limit for Discord embed description (Discord limit is 4096)
 
     let chars: Vec<char> = message.chars().collect();
     let total = if chars.is_empty() {
@@ -246,6 +246,13 @@ fn build_embeds(title: &str, message: &str, now: chrono::DateTime<Local>) -> Vec
         let start = i * MAX_DESC;
         let end = ((i + 1) * MAX_DESC).min(chars.len());
         let part: String = chars[start..end].iter().collect();
+        let part_bytes = part.len();
+        let part_chars = part.chars().count();
+
+        // Log for debugging first embed only
+        if i == 0 {
+            info!("📊 Embed 1: {} chars, {} bytes (max: {})", part_chars, part_bytes, MAX_DESC);
+        }
 
         let display_title = if total > 1 {
             format!("{} ({}/{})", title, i + 1, total)
@@ -286,9 +293,9 @@ async fn send_discord_request(
     url: &str,
     webhook: &DiscordWebhook,
 ) -> Result<reqwest::StatusCode, reqwest::Error> {
+    // Note: .json() automatically sets Content-Type: application/json
     let response = client
         .post(url)
-        .header("Content-Type", "application/json")
         .json(webhook)
         .send()
         .await?;
